@@ -41,6 +41,8 @@ import tensorflow as tf
 _BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
 
+_DEFAULT_VERSION = 2
+
 
 ################################################################################
 # Functions for input processing.
@@ -96,7 +98,7 @@ def process_record_dataset(dataset, is_training, batch_size, shuffle_buffer,
 ################################################################################
 # Functions building the ResNet model.
 ################################################################################
-def batch_norm_relu(inputs, training, data_format):
+def batch_norm_relu(inputs, training, data_format, intermediate_addition=None):
   """Performs a batch normalization followed by a ReLU."""
   # We set fused=True for a significant performance boost. See
   # https://www.tensorflow.org/performance/performance_guide#common_fused_ops
@@ -104,6 +106,8 @@ def batch_norm_relu(inputs, training, data_format):
       inputs=inputs, axis=1 if data_format == 'channels_first' else 3,
       momentum=_BATCH_NORM_DECAY, epsilon=_BATCH_NORM_EPSILON, center=True,
       scale=True, training=training, fused=True)
+  if intermediate_addition is not None:
+    inputs += intermediate_addition
   inputs = tf.nn.relu(inputs)
   return inputs
 
@@ -150,8 +154,8 @@ def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format):
 
 
 def building_block(inputs, filters, training, projection_shortcut, strides,
-                   data_format):
-  """Standard building block for residual networks with BN before convolutions.
+                   data_format, version):
+  """Standard building block for residual networks.
 
   Args:
     inputs: A tensor of size [batch, channels, height_in, width_in] or
@@ -164,9 +168,58 @@ def building_block(inputs, filters, training, projection_shortcut, strides,
     strides: The block's stride. If greater than 1, this block will ultimately
       downsample the input.
     data_format: The input format ('channels_last' or 'channels_first').
+    version: The ordering convention for convolution, batch normalization, and
+             activation.
 
   Returns:
     The output tensor of the block.
+  """
+  if version == 1:
+    return _building_block_v1(inputs=inputs, filters=filters, training=training,
+                              projection_shortcut=projection_shortcut,
+                              strides=strides, data_format=data_format)
+  if version == 2:
+    return _building_block_v2(inputs=inputs, filters=filters, training=training,
+                              projection_shortcut=projection_shortcut,
+                              strides=strides, data_format=data_format)
+  raise ValueError("version should be 1 or 2")
+
+
+def _building_block_v1(inputs, filters, training, projection_shortcut, strides,
+    data_format):
+  """
+  Convolution then batch normalization then ReLU as described by:
+    Deep Residual Learning for Image Recognition
+    https://arxiv.org/pdf/1512.03385.pdf
+    by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Dec 2015.
+  """
+  shortcut = inputs
+
+  if projection_shortcut is not None:
+    shortcut = projection_shortcut(inputs)
+    shortcut = batch_norm_relu(shortcut, training, data_format)
+
+  inputs = conv2d_fixed_padding(
+      inputs=inputs, filters=filters, kernel_size=3, strides=strides,
+      data_format=data_format)
+  inputs = batch_norm_relu(inputs, training, data_format)
+
+  inputs = conv2d_fixed_padding(
+      inputs=inputs, filters=filters, kernel_size=3, strides=1,
+      data_format=data_format)
+  inputs = batch_norm_relu(inputs, training, data_format,
+                           intermediate_addition=shortcut)
+
+  return inputs
+
+
+def _building_block_v2(inputs, filters, training, projection_shortcut, strides,
+    data_format):
+  """
+  Batch normalization then ReLu then convolution as described by:
+    Identity Mappings in Deep Residual Networks
+    https://arxiv.org/pdf/1603.05027.pdf
+    by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Jul 2016.
   """
   shortcut = inputs
   inputs = batch_norm_relu(inputs, training, data_format)
@@ -189,8 +242,8 @@ def building_block(inputs, filters, training, projection_shortcut, strides,
 
 
 def bottleneck_block(inputs, filters, training, projection_shortcut,
-                     strides, data_format):
-  """Bottleneck block variant for residual networks with BN before convolutions.
+                     strides, data_format, version):
+  """Bottleneck block variant for residual networks.
 
   Args:
     inputs: A tensor of size [batch, channels, height_in, width_in] or
@@ -204,10 +257,54 @@ def bottleneck_block(inputs, filters, training, projection_shortcut,
     strides: The block's stride. If greater than 1, this block will ultimately
       downsample the input.
     data_format: The input format ('channels_last' or 'channels_first').
+    version: The ordering convention for convolution, batch normalization, and
+             activation.
 
   Returns:
     The output tensor of the block.
   """
+  if version == 1:
+    return _bottleneck_block_v1(inputs=inputs, filters=filters,
+                                training=training,
+                                projection_shortcut=projection_shortcut,
+                                strides=strides, data_format=data_format)
+  if version == 2:
+    return _bottleneck_block_v2(inputs=inputs, filters=filters,
+                                training=training,
+                                projection_shortcut=projection_shortcut,
+                                strides=strides, data_format=data_format)
+  raise ValueError("version should be 1 or 2")
+
+
+def _bottleneck_block_v1(inputs, filters, training, projection_shortcut,
+    strides, data_format):
+  shortcut = inputs
+
+  if projection_shortcut is not None:
+    shortcut = projection_shortcut(inputs)
+    shortcut = batch_norm_relu(shortcut, training, data_format)
+
+  inputs = conv2d_fixed_padding(
+      inputs=inputs, filters=filters, kernel_size=1, strides=1,
+      data_format=data_format)
+  inputs = batch_norm_relu(inputs, training, data_format)
+
+  inputs = conv2d_fixed_padding(
+      inputs=inputs, filters=filters, kernel_size=3, strides=strides,
+      data_format=data_format)
+  inputs = batch_norm_relu(inputs, training, data_format)
+
+  inputs = conv2d_fixed_padding(
+      inputs=inputs, filters=4 * filters, kernel_size=1, strides=1,
+      data_format=data_format)
+  inputs = batch_norm_relu(inputs, training, data_format,
+                           intermediate_addition=shortcut)
+
+  return inputs
+
+
+def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
+    strides, data_format):
   shortcut = inputs
   inputs = batch_norm_relu(inputs, training, data_format)
 
@@ -234,7 +331,7 @@ def bottleneck_block(inputs, filters, training, projection_shortcut,
 
 
 def block_layer(inputs, filters, block_fn, blocks, strides, training, name,
-                data_format):
+                data_format, version):
   """Creates one layer of blocks for the ResNet model.
 
   Args:
@@ -250,6 +347,8 @@ def block_layer(inputs, filters, block_fn, blocks, strides, training, name,
       model. Needed for batch norm.
     name: A string name for the tensor output of the block layer.
     data_format: The input format ('channels_last' or 'channels_first').
+    version: The ordering convention for convolution, batch normalization, and
+             activation.
 
   Returns:
     The output tensor of the block layer.
@@ -264,10 +363,11 @@ def block_layer(inputs, filters, block_fn, blocks, strides, training, name,
 
   # Only the first block per block_layer uses projection_shortcut and strides
   inputs = block_fn(inputs, filters, training, projection_shortcut, strides,
-                    data_format)
+                    data_format, version=version)
 
   for _ in range(1, blocks):
-    inputs = block_fn(inputs, filters, training, None, 1, data_format)
+    inputs = block_fn(inputs, filters, training, None, 1, data_format,
+                      version=version)
 
   return tf.identity(inputs, name)
 
@@ -279,7 +379,7 @@ class Model(object):
   def __init__(self, resnet_size, num_classes, num_filters, kernel_size,
                conv_stride, first_pool_size, first_pool_stride,
                second_pool_size, second_pool_stride, block_fn, block_sizes,
-               block_strides, final_size, data_format=None):
+               block_strides, final_size, version, data_format=None):
     """Creates a model for classifying an image.
 
     Args:
@@ -326,6 +426,7 @@ class Model(object):
     self.block_sizes = block_sizes
     self.block_strides = block_strides
     self.final_size = final_size
+    self.version = version
 
   def __call__(self, inputs, training):
     """Add operations to classify a batch of input images.
@@ -363,7 +464,7 @@ class Model(object):
           inputs=inputs, filters=num_filters, block_fn=self.block_fn,
           blocks=num_blocks, strides=self.block_strides[i],
           training=training, name='block_layer{}'.format(i + 1),
-          data_format=self.data_format)
+          data_format=self.data_format, version=self.version)
 
     inputs = batch_norm_relu(inputs, training, self.data_format)
     inputs = tf.layers.average_pooling2d(
@@ -418,7 +519,7 @@ def learning_rate_with_decay(
 
 def resnet_model_fn(features, labels, mode, model_class,
                     resnet_size, weight_decay, learning_rate_fn, momentum,
-                    data_format, loss_filter_fn=None):
+                    data_format, version, loss_filter_fn=None):
   """Shared functionality for different resnet model_fns.
 
   Initializes the ResnetModel representing the model layers
@@ -454,7 +555,7 @@ def resnet_model_fn(features, labels, mode, model_class,
   # Generate a summary node for the images
   tf.summary.image('images', features, max_outputs=6)
 
-  model = model_class(resnet_size, data_format)
+  model = model_class(resnet_size, data_format, version=version)
   logits = model(features, mode == tf.estimator.ModeKeys.TRAIN)
 
   predictions = {
@@ -532,6 +633,7 @@ def resnet_main(flags, model_function, input_function):
           'resnet_size': flags.resnet_size,
           'data_format': flags.data_format,
           'batch_size': flags.batch_size,
+          'version': flags.version,
       })
 
   for _ in range(flags.train_epochs // flags.epochs_per_eval):
@@ -608,3 +710,9 @@ class ResnetArgParser(argparse.ArgumentParser):
              'is not always compatible with CPU. If left unspecified, '
              'the data format will be chosen automatically based on '
              'whether TensorFlow was built for CPU or GPU.')
+
+    self.add_argument(
+        '-v', '--version', type=int, choices=[1, 2], dest="version",
+        metavar="", default=_DEFAULT_VERSION,
+        help="Version of resnet. (1 or 2)"
+    )

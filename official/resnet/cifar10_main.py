@@ -130,7 +130,8 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1,
 ###############################################################################
 class Cifar10Model(resnet.Model):
 
-  def __init__(self, resnet_size, data_format=None, num_classes=_NUM_CLASSES):
+  def __init__(self, resnet_size, data_format=None, num_classes=_NUM_CLASSES,
+      version=None):
     """These are the parameters that work for CIFAR-10 data.
 
     Args:
@@ -144,6 +145,8 @@ class Cifar10Model(resnet.Model):
       raise ValueError('resnet_size must be 6n + 2:', resnet_size)
 
     num_blocks = (resnet_size - 2) // 6
+
+
 
     super(Cifar10Model, self).__init__(
         resnet_size=resnet_size,
@@ -159,7 +162,8 @@ class Cifar10Model(resnet.Model):
         block_sizes=[num_blocks] * 3,
         block_strides=[1, 2, 2],
         final_size=64,
-        data_format=data_format)
+        data_format=data_format,
+        version=version)
 
 
 def cifar10_model_fn(features, labels, mode, params):
@@ -189,7 +193,8 @@ def cifar10_model_fn(features, labels, mode, params):
                                 learning_rate_fn=learning_rate_fn,
                                 momentum=0.9,
                                 data_format=params['data_format'],
-                                loss_filter_fn=loss_filter_fn)
+                                loss_filter_fn=loss_filter_fn,
+                                version=params['version'])
 
 
 def main(unused_argv):

@@ -153,7 +153,8 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1,
 ###############################################################################
 class ImagenetModel(resnet.Model):
 
-  def __init__(self, resnet_size, data_format=None, num_classes=_NUM_CLASSES):
+  def __init__(self, resnet_size, data_format=None, num_classes=_NUM_CLASSES,
+    version=None):
     """These are the parameters that work for Imagenet data.
 
     Args:
@@ -186,7 +187,8 @@ class ImagenetModel(resnet.Model):
         block_sizes=_get_block_sizes(resnet_size),
         block_strides=[1, 2, 2, 2],
         final_size=final_size,
-        data_format=data_format)
+        data_format=data_format,
+        version=version)
 
 
 def _get_block_sizes(resnet_size):
@@ -225,7 +227,8 @@ def imagenet_model_fn(features, labels, mode, params):
                                 learning_rate_fn=learning_rate_fn,
                                 momentum=0.9,
                                 data_format=params['data_format'],
-                                loss_filter_fn=None)
+                                loss_filter_fn=None,
+                                version=params['version'])
 
 
 def main(unused_argv):
