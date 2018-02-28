@@ -12,15 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ==============================================================================
-"""Contains definitions for the preactivation form of Residual Networks
-(also known as ResNet v2).
+"""Contains definitions for Residual Networks.
 
-Residual networks (ResNets) were originally proposed in:
+Residual networks ('v1' ResNets) were originally proposed in:
 [1] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
     Deep Residual Learning for Image Recognition. arXiv:1512.03385
 
-The full preactivation 'v2' ResNet variant implemented in this module was
-introduced by:
+The full preactivation 'v2' ResNet variant was introduced by:
 [2] Kaiming He, Xiangyu Zhang, Shaoqing Ren, Jian Sun
     Identity Mappings in Deep Residual Networks. arXiv: 1603.05027
 
@@ -41,7 +39,7 @@ import tensorflow as tf
 _BATCH_NORM_DECAY = 0.997
 _BATCH_NORM_EPSILON = 1e-5
 
-_DEFAULT_VERSION = 2
+DEFAULT_VERSION = 2
 
 
 ################################################################################
@@ -153,9 +151,13 @@ def conv2d_fixed_padding(inputs, filters, kernel_size, strides, data_format):
       data_format=data_format)
 
 
-def building_block(inputs, filters, training, projection_shortcut, strides,
-                   data_format, version):
-  """Standard building block for residual networks.
+def _building_block_v1(inputs, filters, training, projection_shortcut, strides,
+    data_format):
+  """
+  Convolution then batch normalization then ReLU as described by:
+    Deep Residual Learning for Image Recognition
+    https://arxiv.org/pdf/1512.03385.pdf
+    by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Dec 2015.
 
   Args:
     inputs: A tensor of size [batch, channels, height_in, width_in] or
@@ -168,30 +170,9 @@ def building_block(inputs, filters, training, projection_shortcut, strides,
     strides: The block's stride. If greater than 1, this block will ultimately
       downsample the input.
     data_format: The input format ('channels_last' or 'channels_first').
-    version: The ordering convention for convolution, batch normalization, and
-             activation.
 
   Returns:
     The output tensor of the block.
-  """
-  if version == 1:
-    return _building_block_v1(inputs=inputs, filters=filters, training=training,
-                              projection_shortcut=projection_shortcut,
-                              strides=strides, data_format=data_format)
-  if version == 2:
-    return _building_block_v2(inputs=inputs, filters=filters, training=training,
-                              projection_shortcut=projection_shortcut,
-                              strides=strides, data_format=data_format)
-  raise ValueError("version should be 1 or 2")
-
-
-def _building_block_v1(inputs, filters, training, projection_shortcut, strides,
-    data_format):
-  """
-  Convolution then batch normalization then ReLU as described by:
-    Deep Residual Learning for Image Recognition
-    https://arxiv.org/pdf/1512.03385.pdf
-    by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Dec 2015.
   """
   shortcut = inputs
 
@@ -220,6 +201,21 @@ def _building_block_v2(inputs, filters, training, projection_shortcut, strides,
     Identity Mappings in Deep Residual Networks
     https://arxiv.org/pdf/1603.05027.pdf
     by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Jul 2016.
+
+  Args:
+    inputs: A tensor of size [batch, channels, height_in, width_in] or
+      [batch, height_in, width_in, channels] depending on data_format.
+    filters: The number of filters for the convolutions.
+    training: A Boolean for whether the model is in training or inference
+      mode. Needed for batch normalization.
+    projection_shortcut: The function to use for projection shortcuts
+      (typically a 1x1 convolution when downsampling the input).
+    strides: The block's stride. If greater than 1, this block will ultimately
+      downsample the input.
+    data_format: The input format ('channels_last' or 'channels_first')..
+
+  Returns:
+    The output tensor of the block.
   """
   shortcut = inputs
   inputs = batch_norm_relu(inputs, training, data_format)
@@ -241,43 +237,16 @@ def _building_block_v2(inputs, filters, training, projection_shortcut, strides,
   return inputs + shortcut
 
 
-def bottleneck_block(inputs, filters, training, projection_shortcut,
-                     strides, data_format, version):
-  """Bottleneck block variant for residual networks.
-
-  Args:
-    inputs: A tensor of size [batch, channels, height_in, width_in] or
-      [batch, height_in, width_in, channels] depending on data_format.
-    filters: The number of filters for the first two convolutions. Note
-      that the third and final convolution will use 4 times as many filters.
-    training: A Boolean for whether the model is in training or inference
-      mode. Needed for batch normalization.
-    projection_shortcut: The function to use for projection shortcuts
-      (typically a 1x1 convolution when downsampling the input).
-    strides: The block's stride. If greater than 1, this block will ultimately
-      downsample the input.
-    data_format: The input format ('channels_last' or 'channels_first').
-    version: The ordering convention for convolution, batch normalization, and
-             activation.
-
-  Returns:
-    The output tensor of the block.
-  """
-  if version == 1:
-    return _bottleneck_block_v1(inputs=inputs, filters=filters,
-                                training=training,
-                                projection_shortcut=projection_shortcut,
-                                strides=strides, data_format=data_format)
-  if version == 2:
-    return _bottleneck_block_v2(inputs=inputs, filters=filters,
-                                training=training,
-                                projection_shortcut=projection_shortcut,
-                                strides=strides, data_format=data_format)
-  raise ValueError("version should be 1 or 2")
-
-
 def _bottleneck_block_v1(inputs, filters, training, projection_shortcut,
     strides, data_format):
+  """
+  Similar to _building_block_v1(), except using the "bottleneck" blocks
+  described in:
+    Convolution then batch normalization then ReLU as described by:
+      Deep Residual Learning for Image Recognition
+      https://arxiv.org/pdf/1512.03385.pdf
+      by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Dec 2015.
+  """
   shortcut = inputs
 
   if projection_shortcut is not None:
@@ -305,6 +274,20 @@ def _bottleneck_block_v1(inputs, filters, training, projection_shortcut,
 
 def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
     strides, data_format):
+  """
+  Similar to _building_block_v2(), except using the "bottleneck" blocks
+  described in:
+    Convolution then batch normalization then ReLU as described by:
+      Deep Residual Learning for Image Recognition
+      https://arxiv.org/pdf/1512.03385.pdf
+      by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Dec 2015.
+
+  adapted to the ordering conventions of:
+    Batch normalization then ReLu then convolution as described by:
+      Identity Mappings in Deep Residual Networks
+      https://arxiv.org/pdf/1603.05027.pdf
+      by Kaiming He, Xiangyu Zhang, Shaoqing Ren, and Jian Sun, Jul 2016.
+  """
   shortcut = inputs
   inputs = batch_norm_relu(inputs, training, data_format)
 
@@ -331,7 +314,7 @@ def _bottleneck_block_v2(inputs, filters, training, projection_shortcut,
 
 
 def block_layer(inputs, filters, block_fn, blocks, strides, training, name,
-                data_format, version):
+                data_format):
   """Creates one layer of blocks for the ResNet model.
 
   Args:
@@ -347,14 +330,14 @@ def block_layer(inputs, filters, block_fn, blocks, strides, training, name,
       model. Needed for batch norm.
     name: A string name for the tensor output of the block layer.
     data_format: The input format ('channels_last' or 'channels_first').
-    version: The ordering convention for convolution, batch normalization, and
-             activation.
 
   Returns:
     The output tensor of the block layer.
   """
+  filters_out = filters
   # Bottleneck blocks end with 4x the number of filters as they start with
-  filters_out = 4 * filters if block_fn is bottleneck_block else filters
+  if block_fn is _bottleneck_block_v1 or block_fn is _bottleneck_block_v2:
+    filters_out *= 4
 
   def projection_shortcut(inputs):
     return conv2d_fixed_padding(
@@ -363,11 +346,10 @@ def block_layer(inputs, filters, block_fn, blocks, strides, training, name,
 
   # Only the first block per block_layer uses projection_shortcut and strides
   inputs = block_fn(inputs, filters, training, projection_shortcut, strides,
-                    data_format, version=version)
+                    data_format)
 
   for _ in range(1, blocks):
-    inputs = block_fn(inputs, filters, training, None, 1, data_format,
-                      version=version)
+    inputs = block_fn(inputs, filters, training, None, 1, data_format)
 
   return tf.identity(inputs, name)
 
@@ -378,8 +360,9 @@ class Model(object):
 
   def __init__(self, resnet_size, num_classes, num_filters, kernel_size,
                conv_stride, first_pool_size, first_pool_stride,
-               second_pool_size, second_pool_stride, block_fn, block_sizes,
-               block_strides, final_size, version, data_format=None):
+               second_pool_size, second_pool_stride, block_sizes, block_strides,
+               final_size, version=DEFAULT_VERSION, bottleneck=False,
+               data_format=None):
     """Creates a model for classifying an image.
 
     Args:
@@ -404,6 +387,9 @@ class Model(object):
       block_strides: List of integers representing the desired stride size for
         each of the sets of block layers. Should be same length as block_sizes.
       final_size: The expected size of the model after the second pooling.
+      version: Integer defining the order of layers. A detailed
+        description can be found in README.md.
+      bottleneck: Use regular blocks or bottleneck blocks.
       data_format: Input format ('channels_last', 'channels_first', or None).
         If set to None, the format is dependent on whether a GPU is available.
     """
@@ -412,6 +398,22 @@ class Model(object):
     if not data_format:
       data_format = (
           'channels_first' if tf.test.is_built_with_cuda() else 'channels_last')
+
+    self.resnet_version = version
+    if version not in (1, 2):
+      raise ValueError(
+          "Resnet version should be 1 or 2. See README.md for citations.")
+
+    if bottleneck:
+      if version == 1:
+        self.block_fn = _bottleneck_block_v1
+      else:
+        self.block_fn = _bottleneck_block_v2
+    else:
+      if version == 1:
+        self.block_fn = _building_block_v1
+      else:
+        self.block_fn = _building_block_v2
 
     self.data_format = data_format
     self.num_classes = num_classes
@@ -422,11 +424,9 @@ class Model(object):
     self.first_pool_stride = first_pool_stride
     self.second_pool_size = second_pool_size
     self.second_pool_stride = second_pool_stride
-    self.block_fn = block_fn
     self.block_sizes = block_sizes
     self.block_strides = block_strides
     self.final_size = final_size
-    self.version = version
 
   def __call__(self, inputs, training):
     """Add operations to classify a batch of input images.
@@ -464,7 +464,7 @@ class Model(object):
           inputs=inputs, filters=num_filters, block_fn=self.block_fn,
           blocks=num_blocks, strides=self.block_strides[i],
           training=training, name='block_layer{}'.format(i + 1),
-          data_format=self.data_format, version=self.version)
+          data_format=self.data_format)
 
     inputs = batch_norm_relu(inputs, training, self.data_format)
     inputs = tf.layers.average_pooling2d(
@@ -713,6 +713,6 @@ class ResnetArgParser(argparse.ArgumentParser):
 
     self.add_argument(
         '-v', '--version', type=int, choices=[1, 2], dest="version",
-        metavar="", default=_DEFAULT_VERSION,
-        help="Version of resnet. (1 or 2)"
+        metavar="", default=DEFAULT_VERSION,
+        help="Version of ResNet. (1 or 2) See README.md for details."
     )

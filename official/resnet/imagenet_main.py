@@ -154,7 +154,7 @@ def input_fn(is_training, data_dir, batch_size, num_epochs=1,
 class ImagenetModel(resnet.Model):
 
   def __init__(self, resnet_size, data_format=None, num_classes=_NUM_CLASSES,
-    version=None):
+    version=resnet.DEFAULT_VERSION):
     """These are the parameters that work for Imagenet data.
 
     Args:
@@ -163,14 +163,15 @@ class ImagenetModel(resnet.Model):
         data format to use when setting up the model.
       num_classes: The number of output classes needed from the model. This
         enables users to extend the same model to their own datasets.
+      version: ResNet version. See README.md for details.
     """
 
     # For bigger models, we want to use "bottleneck" layers
     if resnet_size < 50:
-      block_fn = resnet.building_block
+      bottleneck = False
       final_size = 512
     else:
-      block_fn = resnet.bottleneck_block
+      bottleneck = True
       final_size = 2048
 
     super(ImagenetModel, self).__init__(
@@ -183,12 +184,12 @@ class ImagenetModel(resnet.Model):
         first_pool_stride=2,
         second_pool_size=7,
         second_pool_stride=1,
-        block_fn=block_fn,
         block_sizes=_get_block_sizes(resnet_size),
         block_strides=[1, 2, 2, 2],
         final_size=final_size,
-        data_format=data_format,
-        version=version)
+        version=version,
+        bottleneck=bottleneck,
+        data_format=data_format)
 
 
 def _get_block_sizes(resnet_size):
